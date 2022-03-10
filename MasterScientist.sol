@@ -1674,8 +1674,11 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
             }
             uint256 sinceLastClaim=pool.partnerRewardsEndTime.sub(previousTime);
             //rewards per second
-            uint256 rewardsPerTimeSinceLastClaimed=sinceLastClaim.div(pool.partnerTokensAvailable);
+            uint256 rewardsPerTimeSinceLastClaimed=pool.partnerTokensAvailable.div(sinceLastClaim);
           //rewards  per second * time
+          if(currentTime>pool.partnerRewardsEndTime){
+              currentTime=pool.partnerRewardsEndTime;
+          }
             uint256 timedifference=currentTime.sub(previousTime);
             return rewardsPerTimeSinceLastClaimed.mul(timedifference);
     }
