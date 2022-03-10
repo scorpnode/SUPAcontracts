@@ -1957,6 +1957,8 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
 
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
+     if (user.lastWithdrawBlock > 0) {
+
                 user.blockdelta = block.number - user.lastWithdrawBlock;
             } else {
                 user.blockdelta = block.number - user.firstDepositBlock;
