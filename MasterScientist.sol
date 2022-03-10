@@ -1384,7 +1384,7 @@ function lock(address _holder, uint256 _amount) external returns(bool);
 contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
-    address public VestingContractAddr;
+    address public VestingContractAddr=0xE064b33aC18396f991eBa3c4c006b53f2498D788; //to be stated
 
     Vesting VestingContract= Vesting(VestingContractAddr); 
     // Info of each user.
@@ -1432,7 +1432,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         uint256 accPartnerTokenPerShare;
     }
 
-   IERC20 public govToken;
+   IERC20 public immutable govToken;
     //An ETH/USDC Oracle (Chainlink)
     // Dev address.
     address public devaddr;
@@ -1481,9 +1481,12 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         uint256 amount,
         uint256 lockAmount
     );
+    event RewardClaimed(
+        uint indexed pid
+    );
 
     modifier nonDuplicated(IERC20 _lpToken) {
-        require(poolExistence[_lpToken] == false, "MasterGardener::nonDuplicated: duplicated");
+        require(poolExistence[_lpToken] == false, "masterScientist::nonDuplicated: duplicated");
         _;
     }
 
@@ -1529,10 +1532,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
 
     // Add a new lp to the pool. Can only be called by the owner.
     function add(uint256 _allocPoint, IERC20 _lpToken, bool _withUpdate,IERC20 _partnerToken) public onlyOwner nonDuplicated(_lpToken) {
-        require(
-            poolId1[address(_lpToken)] == 0,
-            "MasterGardener::add: lp is already in pool"
-        );
+       
         if (_withUpdate) {
             massUpdatePools();
         }
@@ -1616,7 +1616,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
             
             GovTokenForFarmer = getPoolReward(pool.lastRewardBlock, block.number, pool.allocPoint);
           
-        // Mint some new SUPA tokens for the farmer and store them in MasterGardener.
+        // Mint some new SUPA tokens for the farmer and store them in masterScientist.
         govToken.transferFrom(vaultaddr,address(this), GovTokenForFarmer);
         pool.accGovTokenPerShare = pool.accGovTokenPerShare.add(
             GovTokenForFarmer.mul(1e12).div(lpSupply)
@@ -1677,6 +1677,12 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
             uint256 rewardsPerTimeRemaining=pool.partnerTokensAvailable.div(timeRemaining);
           //rewards  per second * time
             forFarmer=rewardsPerTimeRemaining.mul(currentTime.sub(previousTime));
+    }
+    function getCurrentBlock() public view returns(uint256){
+       return block.number;
+    }
+    function getCurrentTimestamp() public view returns(uint256){
+       return block.timestamp;
     }
     // |--------------------------------------|
     // [20, 30, 40, 50, 60, 70, 80, 99999999]
@@ -1797,6 +1803,8 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         updatePool(_pid);
         updatePoolPartner(_pid);
         _harvest(_pid);
+     emit RewardClaimed(_pid);
+
     }
 
     // lock a % of reward if it comes from bonus time.
@@ -1818,7 +1826,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
                     user.rewardDebtPartner
                 );
             // Make sure we aren't giving more tokens than we have in the
-            // MasterGardener contract.
+            // masterScientist contract.
             uint256 masterBal = govToken.balanceOf(address(this));
             uint256 partnerBal= pool.partnerToken.balanceOf(address(this));
 
@@ -1830,7 +1838,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
             }
             if (pending > 0) {
                 // If the user has a positive pending balance of tokens, transfer
-                // those tokens from MasterGardener to their wallet.
+                // those tokens from masterScientist to their wallet.
                 uint256 lockAmount = 0;
                 if (user.rewardDebtAtBlock <= FINISH_BONUS_AT_BLOCK) {
                     // If we are before the FINISH_BONUS_AT_BLOCK number, we need
@@ -1839,8 +1847,10 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
                     uint256 lockPercentage = getLockPercentage(block.number - 1, block.number);
                     lockAmount = pending.mul(lockPercentage).div(100);
                     govToken.transfer(msg.sender, pending-lockAmount);
+                     govToken.transfer(VestingContractAddr, lockAmount);
+
                     bool success=VestingContract.lock(msg.sender, lockAmount);
-                    require(success=true,"unable to lock");
+                    require(success==true,"unable to lock");
                 }else{
                     govToken.transfer(msg.sender, pending);
                 }
@@ -1853,7 +1863,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
             }
               if (pendingPartner > 0) {
                 // If the user has a positive pending balance of tokens, transfer
-                // those tokens from MasterGardener to their wallet.
+                // those tokens from masterScientist to their wallet.
                 pool.partnerToken.transfer(msg.sender, pendingPartner);
                
 
@@ -1863,6 +1873,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
             }
 
             // Recalculate the rewardDebt for the user.
+            user.rewardDebt = user.amount.mul(pool.accGovTokenPerShare).div(1e12);
             user.rewardDebtPartner = user.amount.mul(pool.accPartnerTokenPerShare).div(1e12);
         }
     }
@@ -1888,26 +1899,18 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         return a;
     }
 
-    // Deposit LP tokens to MasterGardener for SUPA allocation.
-    function deposit(uint256 _pid, uint256 _amount, address _ref) public nonReentrant {
+    // Deposit LP tokens to masterScientist for SUPA allocation.
+    function deposit(uint256 _pid, uint256 _amount) public nonReentrant {
         require(
             _amount > 0,
-            "MasterGardener::deposit: amount must be greater than 0"
+            "masterScientist::deposit: amount must be greater than 0"
         );
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
-        UserGlobalInfo storage refer = userGlobalInfo[_ref];
         UserGlobalInfo storage current = userGlobalInfo[msg.sender];
 
-        if (refer.referrals[msg.sender] > 0) {
-            refer.referrals[msg.sender] = refer.referrals[msg.sender] + _amount;
-            refer.globalRefAmount = refer.globalRefAmount + _amount;
-        } else {
-            refer.referrals[msg.sender] = refer.referrals[msg.sender] + _amount;
-            refer.totalReferals = refer.totalReferals + 1;
-            refer.globalRefAmount = refer.globalRefAmount + _amount;
-        }
+      
 
         current.globalAmount =
             current.globalAmount +
@@ -1939,17 +1942,13 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         user.lastDepositBlock = block.number;
     }
 
-    // Withdraw LP tokens from MasterGardener.
-    function withdraw(uint256 _pid, uint256 _amount, address _ref) public nonReentrant {
+    // Withdraw LP tokens from masterScientist.
+    function withdraw(uint256 _pid, uint256 _amount) public nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
-        UserGlobalInfo storage refer = userGlobalInfo[_ref];
         UserGlobalInfo storage current = userGlobalInfo[msg.sender];
-        require(user.amount >= _amount, "MasterGardener::withdraw: not good");
-        if (_ref != address(0)) {
-            refer.referrals[msg.sender] = refer.referrals[msg.sender] - _amount;
-            refer.globalRefAmount = refer.globalRefAmount - _amount;
-        }
+        require(user.amount >= _amount, "MasterScientist::withdraw: not good");
+      
         current.globalAmount = current.globalAmount - _amount;
 
         updatePool(_pid);
@@ -1958,8 +1957,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
 
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
-              if (user.lastWithdrawBlock > 0) {
-                user.blockdelta = block.number - user.lastWithdrawBlock;
+10                user.blockdelta = block.number - user.lastWithdrawBlock;
             } else {
                 user.blockdelta = block.number - user.firstDepositBlock;
             }
@@ -2087,7 +2085,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         } else {
             transferSuccess = govToken.transfer(_to, _amount);
         }
-        require(transferSuccess, "MasterGardener::safeGovTokenTransfer: transfer failed");
+        require(transferSuccess, "masterScientist::safeGovTokenTransfer: transfer failed");
     }
       function safePartnerTokenTransfer(address _to, uint256 _amount,IERC20 tokenAddr) onlyOwner public{
         uint256 partnerTokenBal = tokenAddr.balanceOf(address(this));
@@ -2097,7 +2095,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
         } else {
             transferSuccess = tokenAddr.transfer(_to, _amount);
         }
-        require(transferSuccess, "MasterGardener::safePartnerTokenTransfer: transfer failed");
+        require(transferSuccess, "masterScientist::safePartnerTokenTransfer: transfer failed");
     }
 
     // Update dev address by the previous dev.
@@ -2137,8 +2135,8 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
 
 
     // Update START_BLOCK
-    function starblockUpdate(uint256 _newstarblock) public onlyAuthorized {
-        START_BLOCK = _newstarblock;
+    function startblockUpdate(uint256 _newstartblock) public onlyAuthorized {
+        START_BLOCK = _newstartblock;
     }
 
     function getNewRewardPerBlock(uint256 pid1) public view returns (uint256) {
@@ -2153,8 +2151,7 @@ contract MasterScientist is Ownable, Authorizable, ReentrancyGuard {
                     .div(totalAllocPoint);
         }
     }
-
-    function userDelta(uint256 _pid) public view returns (uint256) {
+   function userDelta(uint256 _pid) public view returns (uint256) {
         UserInfo storage user = userInfo[_pid][msg.sender];
         if (user.lastWithdrawBlock > 0) {
             uint256 estDelta = block.number - user.lastWithdrawBlock;
